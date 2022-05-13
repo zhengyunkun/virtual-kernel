@@ -1,0 +1,6 @@
+{
+        "name": "nginx",
+        "image-url": "nginx",
+        "label" : "",
+        "opts": ""
+}

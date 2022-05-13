@@ -1,0 +1,6 @@
+{
+        "name":"helloworld",
+        "image-url": "hello-world",
+        "label" : "",
+        "opts": "--http-probe=false"
+}
