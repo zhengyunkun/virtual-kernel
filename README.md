@@ -164,4 +164,4 @@ vkernel_265d5c39c6a8    40960  0
 
 ## 证书
 
-代码和文档根据 GNU GENERAL PUBLIC LICENSE v2 许可发布。
+代码和文档根据 [GNU GENERAL PUBLIC LICENSE v2](https://gitlab.eduxiji.net/hustcgcl/project788067-109547/-/blob/master/LICENSE) 许可发布。
