@@ -159,4 +159,4 @@ If you are interested in our project, welcome to submit PRs.
 
 ## License
 
-The code and docs are released under the GNU GENERAL PUBLIC LICENSE v2.
+The code and docs are released under the [GNU GENERAL PUBLIC LICENSE v2](https://gitlab.eduxiji.net/hustcgcl/project788067-109547/-/blob/master/LICENSE).
