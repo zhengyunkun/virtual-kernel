@@ -40,7 +40,7 @@ You need to install the following tools in advance:
 - Python3
 - Make、Gcc and other libraries used to build linux kernel
 
-Or you can use the images we provide(docker pull rehgar/vkn_compiler) to compile the kernel (vkernel_kernel) and runtime (vkernel_runc)
+Or you can use the images we provide [rehgar/vkn_compiler](https://hub.docker.com/r/rehgar/vkn_compiler) to compile the kernel (vkernel_kernel) and runtime (vkernel_runc)
 ## Installation
 
 Clone the repository.
@@ -72,9 +72,9 @@ For details, refer to the Linux kernel compilation and installation method.
   Where, `-i` specifies the seccomp file ([example](https://github.com/moby/moby/blob/master/profiles/seccomp/default.json)), `-o` specifies the directory where seccomp related code is generated, and `-s` specifies the syscall.c template file.
 
   ```bash
-  $ python3 seccomp.py -i myseccomp.json -o ../vkernel_module -s ./input/syscall.c
+  $ python3 seccomp.py -i myseccomp.json -o ../vkernel_module/vKI -s ./input/syscall.c
   # For example
-  # python3 seccomp.py -i ./input/default.json -o ../vkernel_module -s ./input/syscall.c
+  # python3 seccomp.py -i ./input/default.json -o ../vkernel_module/vKI -s ./input/syscall.c
   ```
 
 - Custom apparmor rules. **(Optional, recommended)**
@@ -82,17 +82,17 @@ For details, refer to the Linux kernel compilation and installation method.
   Where, `-i` specifies the apparmor file ([example](https://github.com/moby/moby/blob/master/profiles/apparmor/template.go)), `-o` specifies the directory where apparmor related code is generated, and `-s` specifies the apparmor.c template file.
 
   ```bash
-  $ python3 apparmor.py -i myapparmor -o ../vkernel_module -v ./input/apparmor.c
+  $ python3 apparmor.py -i myapparmor -o ../vkernel_module/vKI -v ./input/apparmor.c
   # For example
-  # python3 apparmor.py -i ./input/docker-nginx -o ../vkernel_module -v ./input/apparmor.c
+  # python3 apparmor.py -i ./input/docker-nginx -o ../vkernel_module/vKI -v ./input/apparmor.c
   ```
 
 - If you don't want to customize the seccomp and apparmor rules in the above two ways, you can specify a `my.json` configuration file and then run the following command using **root** to generate the corresponding rules by [docker-slim](https://github.com/docker-slim/docker-slim).
 
   ```bash
-  $ python3 main.py -i my.json -o ../vkernel_module -s ./input/syscall.c -v ./input/apparmor.c
+  $ python3 main.py -i my.json -o ../vkernel_module/vKI -s ./input/syscall.c -v ./input/apparmor.c
   # For example
-  # sudo python3 main.py -i ./input/nginx.json -o ../vkernel_module -s ./input/syscall.c -v ./input/apparmor.c
+  # sudo python3 main.py -i ./input/nginx.json -o ../vkernel_module/vKI -s ./input/syscall.c -v ./input/apparmor.c
   ```
 
   The `my.json` format is as follows：

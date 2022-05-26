@@ -41,7 +41,7 @@ Vkernel 目前支持的平台有 Ubuntu 18.04、Ubuntu 20.04。其他 Linux 发�
 - Python3
 - Make、Gcc 及其他编译内核的库
 
-也可以使用我们提供的镜像(docker pull rehgar/vkn_compiler)进行内核(vkernel_kernel)和运行时(vkernel_runc)的编译 
+也可以使用我们提供的镜像 [rehgar/vkn_compiler](https://hub.docker.com/r/rehgar/vkn_compiler) 进行内核 (vkernel_kernel) 和运行时 (vkernel_runc) 的编译 
 ## 安装
 
 clone 仓库。
@@ -73,9 +73,9 @@ $ cd vkernel_kernel
   其中，`-i` 指定 seccomp 的 profile 文件（[示例](https://github.com/moby/moby/blob/master/profiles/seccomp/default.json)），`-o` 指定生成 seccomp 相关代码的目录，`-s` 指定 syscall.c 模板文件。
 
   ```bash
-  $ python3 seccomp.py -i myseccomp.json -o ../vkernel_module -s ./input/syscall.c
+  $ python3 seccomp.py -i myseccomp.json -o ../vkernel_module/vKI -s ./input/syscall.c
   # 例如
-  # python3 seccomp.py -i ./input/default.json -o ../vkernel_module -s ./input/syscall.c
+  # python3 seccomp.py -i ./input/default.json -o ../vkernel_module/vKI -s ./input/syscall.c
   ```
 
 - 自定义 apparmor 规则。**（可选，推荐）**
@@ -83,17 +83,17 @@ $ cd vkernel_kernel
   其中，`-i` 指定 apparmor 的 profile 文件（[示例](https://github.com/moby/moby/blob/master/profiles/apparmor/template.go)），`-o` 指定生成 apparmor 相关代码的目录，`-v` 指定 apparmor.c 模板文件。
 
   ```bash
-  $ python3 apparmor.py -i myapparmor -o ../vkernel_module -v ./input/apparmor.c
+  $ python3 apparmor.py -i myapparmor -o ../vkernel_module/vKI -v ./input/apparmor.c
   # 例如
-  # python3 apparmor.py -i ./input/docker-nginx -o ../vkernel_module -v ./input/apparmor.c
+  # python3 apparmor.py -i ./input/docker-nginx -o ../vkernel_module/vKI -v ./input/apparmor.c
   ```
 
 - 如果你不想通过上面两种方式自定义 seccomp 和 apparmor 规则，可以指定一个 `my.json` 配置文件，然后使用 **root** 用户运行如下命令，通过 [docker-slim](https://github.com/docker-slim/docker-slim) 生成相应规则。
 
   ```bash
-  $ python3 main.py -i my.json -o ../vkernel_module -s ./input/syscall.c -v ./input/apparmor.c
+  $ python3 main.py -i my.json -o ../vkernel_module/vKI -s ./input/syscall.c -v ./input/apparmor.c
   # 例如
-  # sudo python3 main.py -i ./input/nginx.json -o ../vkernel_module -s ./input/syscall.c -v ./input/apparmor.c
+  # sudo python3 main.py -i ./input/nginx.json -o ../vkernel_module/vKI -s ./input/syscall.c -v ./input/apparmor.c
   ```
 
   其中，`my.json` 格式如下：
