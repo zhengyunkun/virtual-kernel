@@ -15,9 +15,6 @@
  *     manfred@colorfullife.com
  * Rewrote bits to get rid of console_lock
  *	01Mar01 Andrew Morton
- * 
- *  Modified for kernel log isolation, dxj
- *  2021/4/12
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -58,12 +55,6 @@
 #include <trace/events/initcall.h>
 #define CREATE_TRACE_POINTS
 #include <trace/events/printk.h>
-
-//needed by pid_namespace
-#include<linux/sched.h>           //struct task_struct
-#include<linux/pid.h>             //struct pid
-#include<linux/pid_namespace.h>   //struct pid_namespace
-#include<linux/ns_common.h>       //struct ns_common
 
 #include "console_cmdline.h"
 #include "braille.h"
@@ -376,15 +367,14 @@ enum log_flags {
 
 struct printk_log {
 	u64 ts_nsec;		/* timestamp in nanoseconds */
-	u32 log_ns;         /* the namespace of log */
-	u16 len;		    /* length of entire record */
+	u16 len;		/* length of entire record */
 	u16 text_len;		/* length of text buffer */
 	u16 dict_len;		/* length of dictionary buffer */
 	u8 facility;		/* syslog facility */
-	u8 flags:5;		    /* internal record flags */
-	u8 level:3;		    /* syslog level */
+	u8 flags:5;		/* internal record flags */
+	u8 level:3;		/* syslog level */
 #ifdef CONFIG_PRINTK_CALLER
-	u32 caller_id;      /* thread id or processor id */
+	u32 caller_id;            /* thread id or processor id */
 #endif
 }
 #ifdef CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS
@@ -520,43 +510,6 @@ static struct printk_log *log_from_idx(u32 idx)
 	return msg;
 }
 
-//修改获取日志的函数
-static struct printk_log *log_from_idx2(u32 idx)
-{
-	struct printk_log *msg = (struct printk_log *)(log_buf + idx);
-
-    
-    /* log_namespace与当前进程的pid_namespace进行比对，判断是否具有读取权限 */
-
-	struct pid_namespace *cur_pid_ns;     //pid_namespace struct of current task
-    unsigned int cur_ns;
-    /*get current namespace*/ 	
-	cur_pid_ns=task_active_pid_ns(current);
-	cur_ns=cur_pid_ns->ns.inum;
-	
-	if(cur_ns==4026531836)                //主机pid_namespace，拥有所有权限
-    {
-        /* A length == 0 record is the end of buffer marker. Wrap around and
-         * read the message at the start of the buffer. */
-        if (!msg->len)
-            return (struct printk_log *)log_buf;
-        return msg;
-    }
-    if(msg->log_ns==cur_ns)                   //如果namespace相匹配，拥有读取权限
-    {
-        /* A length == 0 record is the end of buffer marker. Wrap around and
-         * read the message at the start of the buffer. */
-        if (!msg->len)
-            return (struct printk_log *)log_buf;
-        return msg;
-    }
-    else
-    {
-        return NULL;
-    }
-
-}
-
 /* get next record; idx must point to valid msg */
 static u32 log_next(u32 idx)
 {
@@ -566,13 +519,13 @@ static u32 log_next(u32 idx)
 	/*
 	 * A length == 0 record is the end of buffer marker. Wrap around and
 	 * read the message at the start of the buffer as *this* one, and
-	 * return the one after that. 
+	 * return the one after that.
 	 */
-	if (!msg->len) {                        //如果这条记录是最后一条，
-		msg = (struct printk_log *)log_buf; //那么，把第一条当作当前一条
-		return msg->len;                    //返回第一条的后一条的idx
+	if (!msg->len) {
+		msg = (struct printk_log *)log_buf;
+		return msg->len;
 	}
-	return idx + msg->len;  //如果不是最后一条，直接正常返回下一条的idx
+	return idx + msg->len;
 }
 
 /*
@@ -665,17 +618,9 @@ static int log_store(u32 caller_id, int facility, int level,
 		     const char *dict, u16 dict_len,
 		     const char *text, u16 text_len)
 {
-    struct printk_log *msg;
+	struct printk_log *msg;
 	u32 size, pad_len;
 	u16 trunc_msg_len = 0;
-
-    /* pid_namespace struct of log */
-	struct pid_namespace *log_pid_ns;
-    unsigned int log_ns;
-    /* get current namespace */ 	
-	log_pid_ns=task_active_pid_ns(current);
-    log_ns=log_pid_ns->ns.inum;
-    
 
 	/* number of '\0' padding bytes to next message */
 	size = msg_used_size(text_len, dict_len, &pad_len);
@@ -712,8 +657,6 @@ static int log_store(u32 caller_id, int facility, int level,
 	msg->facility = facility;
 	msg->level = level & 7;
 	msg->flags = flags & 0x1f;
-    msg->log_ns = log_ns;
-
 	if (ts_nsec > 0)
 		msg->ts_nsec = ts_nsec;
 	else
@@ -973,26 +916,13 @@ static ssize_t devkmsg_read(struct file *file, char __user *buf,
 		logbuf_unlock_irq();
 		goto out;
 	}
-/* 判断是不是vkernel进程 */
-#ifdef CONFIG_VKERNEL
-	if(unlikely(task_vkernel_enabled(current))){
-		/* 是vkernel进程，隔离读取 */
-		msg = log_from_idx2(user->idx);
-	}else{
-		/* 不是vkernel进程，原始读取 */
-		msg = log_from_idx(user->idx);
-	}
-#endif
 
-	if(msg!=NULL)
-	{
-		len = msg_print_ext_header(user->buf, sizeof(user->buf),
+	msg = log_from_idx(user->idx);
+	len = msg_print_ext_header(user->buf, sizeof(user->buf),
 				   msg, user->seq);
-	    len += msg_print_ext_body(user->buf + len, sizeof(user->buf) - len,
+	len += msg_print_ext_body(user->buf + len, sizeof(user->buf) - len,
 				  log_dict(msg), msg->dict_len,
 				  log_text(msg), msg->text_len);
-	}
-	
 
 	user->idx = log_next(user->idx);
 	user->seq++;
@@ -1408,49 +1338,34 @@ static size_t msg_print_text(const struct printk_log *msg, bool syslog,
 			     bool time, char *buf, size_t size)
 {
 	const char *text = log_text(msg);
-	/*一条记录的内容的总长度*/
 	size_t text_size = msg->text_len;
-	/* 
-	 * 这是要在用户空间开辟的长度，按照下面代码的计算方式说明
-	 * 每一次换行都要重复打印一次前缀，所以
-	 * 这个长度有可能大于在内核ring_buffer里存储的长度
-	 */
-	size_t len = 0;                  
+	size_t len = 0;
 	char prefix[PREFIX_MAX];
-	/*前缀长度，包括时间戳、设备、等级、caller*/
 	const size_t prefix_len = print_prefix(msg, syslog, time, prefix);
 
 	do {
-		const char *next = memchr(text, '\n', text_size);//在可读内容里找换行符
+		const char *next = memchr(text, '\n', text_size);
 		size_t text_len;
 
-		if (next) 
-		{
-			text_len = next - text;    //每一行的长度
+		if (next) {
+			text_len = next - text;
 			next++;
 			text_size -= next - text;
-		} 
-		else 
-		{                              //最后一行没有换行符号了，长度就是剩下的内容
+		} else {
 			text_len = text_size;
 		}
 
-		if (buf)    
-		{
+		if (buf) {
 			if (prefix_len + text_len + 1 >= size - len)
 				break;
-			/*每一行先把前缀的内容复制进去*/
+
 			memcpy(buf + len, prefix, prefix_len);
 			len += prefix_len;
-			/*复制这一行的内容*/
 			memcpy(buf + len, text, text_len);
 			len += text_len;
-			/*每一行结束添加换行符*/
 			buf[len++] = '\n';
-		} 
-		else             
-		{
-			/*SYSLOG_ACTION_* buffer size only calculation*/
+		} else {
+			/* SYSLOG_ACTION_* buffer size only calculation */
 			len += prefix_len + text_len + 1;
 		}
 
@@ -1469,20 +1384,13 @@ static int syslog_print(char __user *buf, int size)
 	text = kmalloc(LOG_LINE_MAX + PREFIX_MAX, GFP_KERNEL);
 	if (!text)
 		return -ENOMEM;
-	/*
-	 * 这里size；来自于do_syslog传递进来的参数len，
-	 * 这个len相当于指定了允许读取到buf(user space)的总长度
-	 * 判断(size>0)起到了防止溢出的作用，所以每次读到一段有效内容，
-	 * 都要用(size-n)->size进行下一此循环的判断
-	 */
-	while (size > 0) 
-	{
+
+	while (size > 0) {
 		size_t n;
 		size_t skip;
 
 		logbuf_lock_irq();
-		if (syslog_seq < log_first_seq) 
-		{
+		if (syslog_seq < log_first_seq) {
 			/* messages are gone, move to first one */
 			syslog_seq = log_first_seq;
 			syslog_idx = log_first_idx;
@@ -1501,83 +1409,37 @@ static int syslog_print(char __user *buf, int size)
 			syslog_time = printk_time;
 
 		skip = syslog_partial;
-/* 判断是不是vkernel进程 */
-#ifdef CONFIG_VKERNEL
-	if(unlikely(task_vkernel_enabled(current))){
-		/* 是vkernel进程，隔离读取 */
-		msg = log_from_idx2(syslog_idx);
-	}else{
-		/* 不是vkernel进程，原始读取 */
 		msg = log_from_idx(syslog_idx);
-	}
-#endif
-		/* 根据log_from_idx2的不同返回，有不同的动作 */
-		if(msg!=NULL)
-		{
-			/*msg成功读取到了日志内容，接下来对这条日志的内容进行处理*/
-			/* msg_printf_text填充text（将日志的可读内容部分的首址赋给text）
-			 * 返回的是经过计算换行和补充前缀之后需要的长度，这个长度赋给n*/
-			n = msg_print_text(msg, true, syslog_time, text,
-			   LOG_LINE_MAX + PREFIX_MAX);
-			
-		    if (n - syslog_partial <= size) 
-			{   /* 如果给的size大于需要分配的空间,
-			     * 这一条日志，可以完整读取
-				 * 然后继续留在循环中 */
-				syslog_idx = log_next(syslog_idx);
-				syslog_seq++;
-				n -= syslog_partial;
-				syslog_partial = 0;    //说明没有分成多个部分
-			} 	
-			else if (!len)               
-			{
-				/* 如果size小于需要分配的空间,只能部分读取
-			     * 并且len==0，说明是第一次循环
-				 * partial read(), remember position（记住位置？） 
-				 * 把允许分配的size全部给到需要配的n*/
-				n = size;   //这种情况下n!=0，在下面判断不会退出循环
-				syslog_partial += n;   
-			} 
-			else 
-			{
-				/* 这里else 是空间不够且len!=0，说明不是第一次循环 */
-				n = 0;  
-			}
-			    
-			logbuf_unlock_irq();
-
-			if (!n) 
-			{
-				/* a:空间足够，n!=0，不退出循环
-				 * b:第一次循环，空间不够，n!=0，不退出循环（至少去复制一段出去）
-				 * c:不是第一次循环，空间不够，n=0，推出循环（不复制了） */
-				break;
-			}
-				
-
-			if (copy_to_user(buf, text + skip, n)) 
-			//从内核复制到用户空间的buf,成功则返回0，不会退出
-			{
-				if (!len)
-					len = -EFAULT;
-				break;
-			}
-
-			len += n;    //n是刚刚添加的长度
-			size -= n;   /*空间没有用完，减去刚刚用去的n，
-			              *如果空间还有剩余，则继续循环，不够则退出 */
-			buf += n;    //用户空间里的buf指针向后移动n个单位
-			
-		}
-		else  
-		{
-			/* msg没有读取到日志，找下一条日志 */
+		n = msg_print_text(msg, true, syslog_time, text,
+				   LOG_LINE_MAX + PREFIX_MAX);
+		if (n - syslog_partial <= size) {
+			/* message fits into buffer, move forward */
 			syslog_idx = log_next(syslog_idx);
 			syslog_seq++;
-			logbuf_unlock_irq();
+			n -= syslog_partial;
+			syslog_partial = 0;
+		} else if (!len){
+			/* partial read(), remember position */
+			n = size;
+			syslog_partial += n;
+		} else
+			n = 0;
+		logbuf_unlock_irq();
+
+		if (!n)
+			break;
+
+		if (copy_to_user(buf, text + skip, n)) {
+			if (!len)
+				len = -EFAULT;
+			break;
 		}
-		
+
+		len += n;
+		size -= n;
+		buf += n;
 	}
+
 	kfree(text);
 	return len;
 }
@@ -1600,54 +1462,24 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 	/*
 	 * Find first record that fits, including all following records,
 	 * into the user-provided buffer for this dump.
-	 * 这一段的作用是计算整个缓冲区里的日志的总长度有多大，
-	 * 储存在len中
 	 */
 	seq = clear_seq;
 	idx = clear_idx;
 	while (seq < log_next_seq) {
-		struct printk_log *msg;
-	/* 判断是不是vkernel进程 */
-#ifdef CONFIG_VKERNEL
-		if(unlikely(task_vkernel_enabled(current))){
-			/* 是vkernel进程，隔离读取 */
-			msg = log_from_idx2(idx);
-		}else{
-			/* 不是vkernel进程，原始读取 */
-			msg = log_from_idx(idx);
-		}
-#endif
-		if(msg!=NULL)
-		{
-            len += msg_print_text(msg, true, time, NULL, 0);
-		}
+		struct printk_log *msg = log_from_idx(idx);
+
+		len += msg_print_text(msg, true, time, NULL, 0);
 		idx = log_next(idx);
 		seq++;
 	}
 
-	/* 
-	 * move first record forward until length fits into the buffer 
-	 * 这一段是从第一条日志开始，如果总长度len > size（给的用户空间缓存区的大小）
-	 * 那就舍弃一条日志，减去其长度，直到总长度满足要求，记下此时的seq和idx
-	 */
+	/* move first record forward until length fits into the buffer */
 	seq = clear_seq;
 	idx = clear_idx;
 	while (len > size && seq < log_next_seq) {
-		struct printk_log *msg;
-#ifdef CONFIG_VKERNEL
-		if(unlikely(task_vkernel_enabled(current))){
-			/* 是vkernel进程，隔离读取 */
-			msg = log_from_idx2(idx);
-		}else{
-			/* 不是vkernel进程，原始读取 */
-			msg = log_from_idx(idx);
-		}
-#endif
-		/* 修改 */
-		if(msg!=NULL)
-		{
-            len -= msg_print_text(msg, true, time, NULL, 0);
-		}
+		struct printk_log *msg = log_from_idx(idx);
+
+		len -= msg_print_text(msg, true, time, NULL, 0);
 		idx = log_next(idx);
 		seq++;
 	}
@@ -1657,24 +1489,10 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 
 	len = 0;
 	while (len >= 0 && seq < next_seq) {
-		struct printk_log *msg;
-#ifdef CONFIG_VKERNEL
-		if(unlikely(task_vkernel_enabled(current))){
-			/* 是vkernel进程，隔离读取 */
-			msg = log_from_idx2(idx);
-		}else{
-			/* 不是vkernel进程，原始读取 */
-			msg = log_from_idx(idx);
-		}
-#endif
-		/* 修改 */
-		int textlen = 0;
-		if(msg!=NULL)
-		{
-			textlen = msg_print_text(msg, true, time, text,
+		struct printk_log *msg = log_from_idx(idx);
+		int textlen = msg_print_text(msg, true, time, text,
 					     LOG_LINE_MAX + PREFIX_MAX);
-		}
-		
+
 		idx = log_next(idx);
 		seq++;
 
@@ -1685,7 +1503,6 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 			len += textlen;
 		logbuf_lock_irq();
 
-		/* seq是从0开始增加的，要小于first_seq只能是溢出了？ */
 		if (seq < log_first_seq) {
 			/* messages are gone, move to next one */
 			seq = log_first_seq;
@@ -1698,6 +1515,7 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 		clear_idx = log_next_idx;
 	}
 	logbuf_unlock_irq();
+
 	kfree(text);
 	return len;
 }
@@ -1736,11 +1554,6 @@ int do_syslog(int type, char __user *buf, int len, int source)
 						 syslog_seq != log_next_seq);
 		if (error)
 			return error;
-		/*
-		 * syslog_print()返回len，赋给error，do_syslog返回error
-		 * 在kmsg_read中，如果文件为非阻塞方式，并且log_buf为空（调用do_syslog(unread)->return 0）
-		 * 则向上一级调用返回错误信号（try again），如果log_buf不为空，开始调用do_syslog(read)
-		 */
 		error = syslog_print(buf, len);
 		break;
 	/* Read/clear last kernel messages */
@@ -1786,7 +1599,6 @@ int do_syslog(int type, char __user *buf, int len, int source)
 		break;
 	/* Number of chars in the log buffer */
 	case SYSLOG_ACTION_SIZE_UNREAD:
-	/* 在ring_buffer还剩多少可以读取的字符数 */
 		logbuf_lock_irq();
 		if (syslog_seq < log_first_seq) {
 			/* messages are gone, move to first one */
@@ -1807,23 +1619,11 @@ int do_syslog(int type, char __user *buf, int len, int source)
 			bool time = syslog_partial ? syslog_time : printk_time;
 
 			while (seq < log_next_seq) {
-				struct printk_log *msg;
-#ifdef CONFIG_VKERNEL
-				if(unlikely(task_vkernel_enabled(current))){
-					/* 是vkernel进程，隔离读取 */
-					msg = log_from_idx2(idx);
-				}else{
-					/* 不是vkernel进程，原始读取 */
-					msg = log_from_idx(idx);
-				}
-#endif
-				if(msg!=NULL)
-				{
-					error += msg_print_text(msg, true, time, NULL,
-							0);
-				    time = printk_time;
-				}
+				struct printk_log *msg = log_from_idx(idx);
 
+				error += msg_print_text(msg, true, time, NULL,
+							0);
+				time = printk_time;
 				idx = log_next(idx);
 				seq++;
 			}
@@ -2651,18 +2451,9 @@ again:
 skip:
 		if (console_seq == log_next_seq)
 			break;
-#ifdef CONFIG_VKERNEL
-		if(unlikely(task_vkernel_enabled(current)))
-		{
-			/* 是vkernel进程，隔离读取 */
-			msg = log_from_idx2(console_idx);
-		}else{
-			/* 不是vkernel进程，原始读取 */
-			msg = log_from_idx(console_idx);
-		}
-#endif
-		if (msg==NULL || suppress_message_printing(msg->level)) {
-			/* 没有权限，或者level不符合，跳过 */
+
+		msg = log_from_idx(console_idx);
+		if (suppress_message_printing(msg->level)) {
 			/*
 			 * Skip record we have buffered and already printed
 			 * directly to the console when we received it, and
@@ -2672,32 +2463,28 @@ skip:
 			console_seq++;
 			goto skip;
 		}
-		else
-		{
-			/* 有权限，并且level符合，打印 */
-			/* Output to all consoles once old messages replayed. */
-		    if (unlikely(exclusive_console &&
+
+		/* Output to all consoles once old messages replayed. */
+		if (unlikely(exclusive_console &&
 			     console_seq >= exclusive_console_stop_seq)) {
 			exclusive_console = NULL;
-			}
+		}
 
-			len += msg_print_text(msg,
+		len += msg_print_text(msg,
 				console_msg_format & MSG_FORMAT_SYSLOG,
 				printk_time, text + len, sizeof(text) - len);
-			if (nr_ext_console_drivers) {
-				ext_len = msg_print_ext_header(ext_text,
+		if (nr_ext_console_drivers) {
+			ext_len = msg_print_ext_header(ext_text,
 						sizeof(ext_text),
 						msg, console_seq);
-				ext_len += msg_print_ext_body(ext_text + ext_len,
+			ext_len += msg_print_ext_body(ext_text + ext_len,
 						sizeof(ext_text) - ext_len,
 						log_dict(msg), msg->dict_len,
 						log_text(msg), msg->text_len);
-			}
-			console_idx = log_next(console_idx);
-			console_seq++;
-			raw_spin_unlock(&logbuf_lock);
 		}
-		
+		console_idx = log_next(console_idx);
+		console_seq++;
+		raw_spin_unlock(&logbuf_lock);
 
 		/*
 		 * While actively printing out messages, if another printk()
@@ -3436,19 +3223,9 @@ bool kmsg_dump_get_line_nolock(struct kmsg_dumper *dumper, bool syslog,
 	if (dumper->cur_seq >= log_next_seq)
 		goto out;
 
-#ifdef CONFIG_VKERNEL
-	if(unlikely(task_vkernel_enabled(current))){
-		/* 是vkernel进程，隔离读取 */
-		msg = log_from_idx2(dumper->cur_idx);
-	}else{
-		/* 不是vkernel进程，原始读取 */
-		msg = log_from_idx(dumper->cur_idx);
-	}
-#endif
-	if(msg!=NULL)
-	{
-		l = msg_print_text(msg, syslog, printk_time, line, size);
-	}
+	msg = log_from_idx(dumper->cur_idx);
+	l = msg_print_text(msg, syslog, printk_time, line, size);
+
 	dumper->cur_idx = log_next(dumper->cur_idx);
 	dumper->cur_seq++;
 	ret = true;
@@ -3540,20 +3317,9 @@ bool kmsg_dump_get_buffer(struct kmsg_dumper *dumper, bool syslog,
 	seq = dumper->cur_seq;
 	idx = dumper->cur_idx;
 	while (seq < dumper->next_seq) {
-		struct printk_log *msg;
-#ifdef CONFIG_VKERNEL
-		if(unlikely(task_vkernel_enabled(current))){
-			/* 是vkernel进程，隔离读取 */
-			msg = log_from_idx2(idx);
-		}else{
-			/* 不是vkernel进程，原始读取 */
-			msg = log_from_idx(idx);
-		}
-#endif
-		if(msg!=NULL)
-		{
-			l += msg_print_text(msg, true, time, NULL, 0);
-		}
+		struct printk_log *msg = log_from_idx(idx);
+
+		l += msg_print_text(msg, true, time, NULL, 0);
 		idx = log_next(idx);
 		seq++;
 	}
@@ -3562,21 +3328,9 @@ bool kmsg_dump_get_buffer(struct kmsg_dumper *dumper, bool syslog,
 	seq = dumper->cur_seq;
 	idx = dumper->cur_idx;
 	while (l >= size && seq < dumper->next_seq) {
-		struct printk_log *msg;
-#ifdef CONFIG_VKERNEL
-		if(unlikely(task_vkernel_enabled(current)))
-		{
-			/* 是vkernel进程，隔离读取 */
-			msg = log_from_idx2(idx);
-		}else{
-			/* 不是vkernel进程，原始读取 */
-			msg = log_from_idx(idx);
-		}
-#endif
-		if(msg!=NULL)
-		{
-			l -= msg_print_text(msg, true, time, NULL, 0);
-		}
+		struct printk_log *msg = log_from_idx(idx);
+
+		l -= msg_print_text(msg, true, time, NULL, 0);
 		idx = log_next(idx);
 		seq++;
 	}
@@ -3587,21 +3341,9 @@ bool kmsg_dump_get_buffer(struct kmsg_dumper *dumper, bool syslog,
 
 	l = 0;
 	while (seq < dumper->next_seq) {
-		struct printk_log *msg;
-#ifdef CONFIG_VKERNEL
-		if(unlikely(task_vkernel_enabled(current)))
-		{
-			/* 是vkernel进程，隔离读取 */
-			msg = log_from_idx2(idx);
-		}else{
-			/* 不是vkernel进程，原始读取 */
-			msg = log_from_idx(idx);
-		}
-#endif
-		if(msg!=NULL)
-		{
-			l += msg_print_text(msg, syslog, time, buf + l, size - l);
-		}
+		struct printk_log *msg = log_from_idx(idx);
+
+		l += msg_print_text(msg, syslog, time, buf + l, size - l);
 		idx = log_next(idx);
 		seq++;
 	}
