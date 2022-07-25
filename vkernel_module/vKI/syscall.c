@@ -3,6 +3,20 @@
 #include <linux/pid_namespace.h>
 
 #include "vkernel.h"
+#include "syscalls/syscalls.h"
+
+/**
+ * vkn_syscall_init - vkernel syscall data initialization
+ * @vkn: vkernel structure pointer
+ *
+ * This function initializes the vkernel's system call subsystem by calling the syscall's
+ * initialization function.
+ */
+void __init vkn_syscall_init(struct vkernel *vkn)
+{
+    vkn_futex_init(vkn);
+    // TODO: Initialize other syscall data, e.g. vkn_read_init(), vkn_clone_init() ...
+}
 
 /**
  * syscall_install - syscall virtualization initialization.
@@ -14,6 +28,9 @@
 void __init syscall_install(struct vkernel *vkn)
 {
     sys_call_ptr_t *sys_call_table = vkn->sys_call_table;
+    vkn_syscall_init(vkn);
+
+    sys_call_table[__NR_futex] = (sys_call_ptr_t)&vkn_sys_futex;
 
     orig_sys_clone = (void *)sys_call_table[__NR_clone];
     sys_call_table[__NR_clone] = (sys_call_ptr_t)&vkn_sys_clone;
