@@ -31,6 +31,8 @@ module_param_array(caps_data, ulong, &caps_data_num, 0400);
 module_param_array(caps_bounding, ulong, &caps_bounding_num, 0400);
 module_param_array(caps_ambient, ulong, &caps_ambient_num, 0400);
 
+typedef void (*vkn_log_flush_ptr_t)(void);
+
 /**
  * pid_ns_enable_vkernel - enable vkernel through the pid namespace
  */
@@ -51,6 +53,11 @@ static void pid_ns_enable_vkernel(void)
  */
 static void pid_ns_disable_vkernel(void)
 {
+	// Vkernel log flush means when vkernel exit, make the vkernel log visible only in host namespace
+	vkn_log_flush_ptr_t vkn_log_flush = NULL;
+	vkn_log_flush = (vkn_log_flush_ptr_t)kallsyms_lookup_name("vkn_log_flush");
+	vkn_log_flush();
+
 	pid_ns->vkernel = NULL;
 	// TODO: remove the following structure members from pid_namespace structure in kernel
 	pid_ns->sys_call_table = NULL;
