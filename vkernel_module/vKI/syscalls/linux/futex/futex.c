@@ -17,6 +17,7 @@
 
 #include "kallsyms.h"
 #include "rtmutex.h"
+#include "../../../vkernel.h"
 
 // 164
 #ifdef CONFIG_HAVE_FUTEX_CMPXCHG
@@ -3258,7 +3259,9 @@ long vkn_sys_futex(const struct pt_regs *regs)
 
 void __init vkn_futex_init(void *vkn)
 {
+    struct vkernel *vk = (struct vkernel *)vkn;
     futex_init();
+    vk->do_futex = do_futex;
 }
 
 void vkn_futex_cleanup(void *vkn)
