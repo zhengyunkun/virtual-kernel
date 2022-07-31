@@ -12,7 +12,7 @@
 
 vkernel 包含如下几个部分：
 
-- **module**：vkernel 内核模块（vkernel.ko）。它是 vkernel 的核心部分，为容器实现内核资源的虚拟化及安全防护。
+- **module**：vkernel 内核模块（vkernel.ko,vkernel_hook.ko）。它们是 vkernel 的核心部分，为容器实现内核资源的虚拟化及安全防护。
 - **builder**：vkernel 内核模块构建工具，用于分析容器镜像系统调用，基于 seccomp、apparmor 规则自动化构建 vkernel 内核模块。
 - **runtime**：一个调用 vkernel 内核模块的容器运行时。运行时兼容 [OCI](https://github.com/opencontainers/runtime-spec) 标准，基于 [runc 1.0.0-rc92](https://github.com/opencontainers/runc/tree/v1.0.0-rc92)。
 - **kernel**：运行 vkernel 内核模块的 Linux 内核，基于 [Linux 5.7](https://github.com/torvalds/linux/tree/v5.7)。
@@ -22,12 +22,13 @@ vkernel 包含如下几个部分：
 目前，vkernel 实现了如下几个特性：
 
 - **虚拟内核安全隔离**
-  - **系统调用隔离**：为容器创建独立的系统调用表。
+  - **系统调用隔离**：为容器创建独立的系统调用表，并以futex子系统为例实现容器隔离的 *futex()* 系统调用。
   - **文件访问控制**：基于 inode 虚拟化实现文件及目录的自定义访问规则。
   - **进程权限控制**：面向容器进程的双重 Capabilities 防护。
-
+  - **日志文件隔离**：为容器实现隔离的日志文件访问。
+  
 - **虚拟内核构建流程**
-  - **自动构建工具**：基于 apparmor 和 seccomp 配置文件自动构建 vkernel 模块
+  - **自动构建工具**：基于 apparmor 和 seccomp 配置文件自动构建 vkernel 模块。
 
 ## 准备
 
@@ -42,6 +43,7 @@ Vkernel 目前支持的平台有 Ubuntu 18.04、Ubuntu 20.04。其他 Linux 发�
 - Make、Gcc 及其他编译内核的库
 
 也可以使用我们提供的镜像 [rehgar/vkn_compiler](https://hub.docker.com/r/rehgar/vkn_compiler) 进行内核 (vkernel_kernel) 和运行时 (vkernel_runc) 的编译 
+
 ## 安装
 
 clone 仓库。
@@ -57,6 +59,8 @@ $ cd vkernel_kernel
 ```
 
 具体参考 Linux 内核编译安装方式。
+
+注：需要在配置文件中增加CONFIG_VKERNEL=y以支持Vkernel，我们在此提供一份适用于Ubuntu 20.04的 [config-5.7.0]() 文件。
 
 ### 安装 vkernel 内核模块
 
@@ -112,7 +116,10 @@ $ cd vkernel_kernel
 2. 进入 vkernel 模块目录，编译内核模块安装。
 
    ```bash
-   $ cd vkernel_module
+   $ cd vkernel_module/vKM
+   $ make
+   $ sudo insmod vkernel_hook.ko
+   $ cd ../vKI
    $ make
    $ sudo make install
    ```
@@ -153,6 +160,62 @@ $ docker run --rm --runtime=vkernel-runtime -itd ubuntu /bin/bash
 $ lsmod | grep vkernel
 vkernel_265d5c39c6a8    40960  0
 ```
+
+## 测试
+
+为了方便进行vkernel的测试工作，我们提供了[测试脚本](scripts/)。
+
+1. 镜像拉取
+
+你需要提前拉取以下镜像:
+
+- nginx
+```bash
+$ docker pull nginx:latest
+```
+
+- apache-benchmark
+```bash
+$ docker pull jordi/ab:latest
+```
+
+- pwgen
+```bash
+$ docker pull backplane/pwgen:latest
+```
+
+2. 组件安装
+
+如果你想进行不同容器运行时的对比，需要提前安装以下组件,否则直接跳到**第 3 步**：
+
+- gVisor
+- kata
+
+具体参考 gVisor 和 kata 的安装方式。
+
+3. 使用脚本进行测试
+
+- Nginx测试
+
+```bash
+$ cd scripts
+使用默认运行时：
+$ ./nginx.sh original
+使用其他运行时：
+$ ./nginx.sh vkernel-runtime(runsc/kata-runtime)
+```
+
+
+- Pwgen测试
+
+```bash
+$ cd scripts
+使用默认运行时：
+$ ./pwgen.sh original
+使用其他运行时：
+$ ./pwgen.sh vkernel-runtime(runsc/kata-runtime)
+```
+
 
 ## 开发文档
 
