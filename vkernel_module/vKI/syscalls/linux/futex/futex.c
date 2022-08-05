@@ -19,6 +19,96 @@
 #include "rtmutex.h"
 #include "../../../vkernel.h"
 
+/* CFS-related fields in a runqueue */
+struct cfs_rq {
+	struct load_weight	load;
+	unsigned int		nr_running;
+	unsigned int		h_nr_running;      /* SCHED_{NORMAL,BATCH,IDLE} */
+	unsigned int		idle_h_nr_running; /* SCHED_IDLE */
+
+	u64			exec_clock;
+	u64			min_vruntime;
+#ifndef CONFIG_64BIT
+	u64			min_vruntime_copy;
+#endif
+
+	struct rb_root_cached	tasks_timeline;
+
+	/*
+	 * 'curr' points to currently running entity on this cfs_rq.
+	 * It is set to NULL otherwise (i.e when none are currently running).
+	 */
+	struct sched_entity	*curr;
+	struct sched_entity	*next;
+	struct sched_entity	*last;
+	struct sched_entity	*skip;
+
+#ifdef	CONFIG_SCHED_DEBUG
+	unsigned int		nr_spread_over;
+#endif
+
+#ifdef CONFIG_SMP
+	/*
+	 * CFS load tracking
+	 */
+	struct sched_avg	avg;
+#ifndef CONFIG_64BIT
+	u64			load_last_update_time_copy;
+#endif
+	struct {
+		raw_spinlock_t	lock ____cacheline_aligned;
+		int		nr;
+		unsigned long	load_avg;
+		unsigned long	util_avg;
+		unsigned long	runnable_avg;
+	} removed;
+
+#ifdef CONFIG_FAIR_GROUP_SCHED
+	unsigned long		tg_load_avg_contrib;
+	long			propagate;
+	long			prop_runnable_sum;
+
+	/*
+	 *   h_load = weight * f(tg)
+	 *
+	 * Where f(tg) is the recursive weight fraction assigned to
+	 * this group.
+	 */
+	unsigned long		h_load;
+	u64			last_h_load_update;
+	struct sched_entity	*h_load_next;
+#endif /* CONFIG_FAIR_GROUP_SCHED */
+#endif /* CONFIG_SMP */
+
+#ifdef CONFIG_FAIR_GROUP_SCHED
+	struct rq		*rq;	/* CPU runqueue to which this cfs_rq is attached */
+
+	/*
+	 * leaf cfs_rqs are those that hold tasks (lowest schedulable entity in
+	 * a hierarchy). Non-leaf lrqs hold other higher schedulable entities
+	 * (like users, containers etc.)
+	 *
+	 * leaf_cfs_rq_list ties together list of leaf cfs_rq's in a CPU.
+	 * This list is used during load balance.
+	 */
+	int			on_list;
+	struct list_head	leaf_cfs_rq_list;
+	struct task_group	*tg;	/* group that "owns" this runqueue */
+
+#ifdef CONFIG_CFS_BANDWIDTH
+	int			runtime_enabled;
+	s64			runtime_remaining;
+
+	u64			throttled_clock;
+	u64			throttled_clock_task;
+	u64			throttled_clock_task_time;
+	int			throttled;
+	int			throttle_count;
+	struct list_head	throttled_list;
+#endif /* CONFIG_CFS_BANDWIDTH */
+#endif /* CONFIG_FAIR_GROUP_SCHED */
+};
+
 // 164
 #ifdef CONFIG_HAVE_FUTEX_CMPXCHG
 #define futex_cmpxchg_enabled 1
@@ -100,6 +190,7 @@ struct futex_q {
 	struct rt_mutex_waiter *rt_waiter;
 	union futex_key *requeue_pi_key;
 	u32 bitset;
+	atomic_t status;
 } __randomize_layout;
 
 // 241
@@ -1165,8 +1256,19 @@ static void mark_wake_futex(struct wake_q_head *wake_q, struct futex_q *q)
 	 * to prevent the following store to lock_ptr from getting ahead of the
 	 * plist_del in __unqueue_futex().
 	 */
-	smp_store_release(&q->lock_ptr, NULL);
 
+	if(atomic_read(&q->status))
+	{
+		smp_mb__before_atomic();
+		atomic_set(&q->status,0);
+		p->se.vruntime-=3000000000;
+		smp_store_release(&q->lock_ptr, NULL);
+		if(p->state != TASK_RUNNING)
+			 wake_q_add_safe(wake_q, p);
+		return ;
+	}
+
+	smp_store_release(&q->lock_ptr, NULL);
 	/*
 	 * Queue the task for later wakeup for after we've released
 	 * the hb->lock.
@@ -2308,31 +2410,47 @@ out:
  * @timeout:	the prepared hrtimer_sleeper, or null for no timeout
  */
 static void futex_wait_queue_me(struct futex_hash_bucket *hb, struct futex_q *q,
-				struct hrtimer_sleeper *timeout)
+                                                struct hrtimer_sleeper *timeout)
 {
-	/*
-	 * The task state is guaranteed to be set before another task can
-	 * wake it. set_current_state() is implemented using smp_store_mb() and
-	 * queue_me() calls spin_unlock() upon completion, both serializing
-	 * access to the hash list and forcing another memory barrier.
-	 */
+	if(current->pid!=current->tgid&&!timeout)
+	{
+		queue_me(q, hb);
+		atomic_set(&q->status,1);
+		smp_mb__after_atomic();
+		current->se.vruntime+=3000000000;
+		while(1)
+		{
+			smp_mb__before_atomic();
+			if(!atomic_read(&q->status))
+				break;
+			if(sigismember(&current->pending.signal, SIGKILL))
+				break;
+			current->se.cfs_rq->skip=&current->se;
+			schedule();
+		}
+		return ;
+	}
 	set_current_state(TASK_INTERRUPTIBLE);
 	queue_me(q, hb);
-
-	/* Arm the timer */
 	if (timeout)
-		hrtimer_sleeper_start_expires(timeout, HRTIMER_MODE_ABS);
-
-	/*
-	 * If we have been removed from the hash list, then another task
-	 * has tried to wake us, and we can skip the call to schedule().
-	 */
+		hrtimer_start_expires(&timeout->timer, HRTIMER_MODE_ABS);
 	if (likely(!plist_node_empty(&q->list))) {
-		/*
-		 * If the timer has already expired, current will already be
-		 * flagged for rescheduling. Only call schedule if there
-		 * is no timeout, or if it has yet to expire.
-		 */
+		if (!timeout || timeout->task)
+		{
+				freezable_schedule();
+		}
+        }
+        __set_current_state(TASK_RUNNING);
+}
+
+static void futex_wait_queue_me1(struct futex_hash_bucket *hb, struct futex_q *q,
+		                                struct hrtimer_sleeper *timeout)
+{
+	set_current_state(TASK_INTERRUPTIBLE);
+	queue_me(q, hb);
+	if (timeout)
+		hrtimer_start_expires(&timeout->timer, HRTIMER_MODE_ABS);
+	if (likely(!plist_node_empty(&q->list))) {
 		if (!timeout || timeout->task)
 			freezable_schedule();
 	}
@@ -2986,7 +3104,7 @@ static int futex_wait_requeue_pi(u32 __user *uaddr, unsigned int flags,
 	}
 
 	/* Queue the futex_q, drop the hb lock, wait for wakeup. */
-	futex_wait_queue_me(hb, &q, to);
+	futex_wait_queue_me1(hb, &q, to);
 
 	spin_lock(&hb->lock);
 	ret = handle_early_requeue_pi_wakeup(hb, &q, &key2, to);
