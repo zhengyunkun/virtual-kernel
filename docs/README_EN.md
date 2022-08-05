@@ -12,7 +12,7 @@ A customizable, pluggable lightweight virtual kernel for containers on the Linux
 
 vkernel contains the following parts:
 
-- **module**: vkernel module (vkernel.ko). It's the key of VKernel, which realizes the virtualization and security of kernel resources for the container.
+- **module**: vkernel module (vkernel.ko,vkernel_hook.ko). They are the keys of VKernel, that realize the virtualization and security of kernel resources for the container.
 - **builder**: A tool for building vkernel module. It analyzes container images' system call and automatically build vkernel module based on seccomp, apparmor rules.
 - **runtime**: A container runtime that calls the vkernel module. The runtime is [OCI](https://github.com/opencontainers/runtime-spec)-compatible and based on [runc 1.0.0-rc92](https://github.com/opencontainers/runc/tree/v1.0.0-rc92).
 - **kernel**: The Linux kernel running the vkernel module, based on [Linux 5.7](https://github.com/torvalds/linux/tree/v5.7)。
@@ -22,9 +22,12 @@ vkernel contains the following parts:
 vkernel implements the following features:
 
 - **virtual kernel security isolation**
-  - **system call isolation**: Creating a separate system call table for each container.
+  - **system call isolation**: Creating a separate system call table for each container,and take the futex subsystem as
+an example to implement the isolated *futex()* system call for containers.
   - **file access control**: Implementing custom access rules for files and directories based on inode virtualization.
   - **process permission control**: Container-oriented dual Capabilities protection.
+  - **syslog isolation**: Implementing isolated log file access for containers.
+  
 - **virtual kernel build process**
   - **automatic build tools**: Automatically build vkernel modules based on apparmor and seccomp profiles.
 
@@ -56,6 +59,8 @@ $ cd vkernel_kernel
 ```
 
 For details, refer to the Linux kernel compilation and installation method.
+
+Note: Option CONFIG_VKERNEL=y needs to be added into the configuration file to support Vkernel. We provide a [config-5.7.0]() file that fits Ubuntu 20.04.
 
 ### Install vkernel module
 
@@ -111,7 +116,10 @@ For details, refer to the Linux kernel compilation and installation method.
 2. Enter the vkernel module directory, compile the kernel module and install it.
 
    ```bash
-   $ cd vkernel_module
+   $ cd vkernel_module/vKM
+   $ make
+   $ sudo insmod vkernel_hook.ko
+   $ cd ../vKI
    $ make
    $ sudo make install
    ```
@@ -151,6 +159,60 @@ $ docker run --rm --runtime=vkernel-runtime -itd ubuntu /bin/bash
 265d5c39c6a882ca531e9b5ed2d3c4d305f13f142cc1c9cd50246221b592e55b
 $ lsmod | grep vkernel
 vkernel_265d5c39c6a8    40960  0
+```
+
+## Test
+
+In order to facilitate the testing of Vkernel, we provide [test scripts](scripts/).
+
+1. Pull images
+
+You need to pull the following images in advance:
+
+- nginx
+```bash
+$ docker pull nginx:latest
+```
+
+- apache-benchmark
+```bash
+$ docker pull jordi/ab:latest
+```
+
+- pwgen
+```bash
+$ docker pull backplane/pwgen:latest
+```
+
+2. Install components
+
+If you wish to compare different container runtimes, the following components need to be installed in advance. Otherwise, skip to **Step 3**.
+
+- gVisor
+- kata
+
+For details, refer to gVisor and kata installation methods.
+
+3. Test with scripts
+
+- Nginx
+
+```bash
+$ cd scripts
+Run with default runtime:
+$ ./nginx.sh original
+Run with other runtimes:
+$ ./nginx.sh vkernel-runtime(runsc/kata-runtime)
+```
+
+- Pwgen
+
+```bash
+$ cd scripts
+Run with default runtime:
+$ ./pwgen.sh original
+Run with other runtimes:
+$ ./pwgen.sh vkernel-runtime(runsc/kata-runtime)
 ```
 
 ## Contribution
