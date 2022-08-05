@@ -982,6 +982,8 @@ static ssize_t devkmsg_read(struct file *file, char __user *buf,
 		/* 不是vkernel进程，原始读取 */
 		msg = log_from_idx(user->idx);
 	}
+#else
+	msg=log_from_idx(user->idx);
 #endif
 
 	if(msg!=NULL)
@@ -1510,6 +1512,8 @@ static int syslog_print(char __user *buf, int size)
 		/* 不是vkernel进程，原始读取 */
 		msg = log_from_idx(syslog_idx);
 	}
+#else
+	msg = log_from_idx(syslog_idx);
 #endif
 		/* 根据log_from_idx2的不同返回，有不同的动作 */
 		if(msg!=NULL)
@@ -1616,10 +1620,12 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 			/* 不是vkernel进程，原始读取 */
 			msg = log_from_idx(idx);
 		}
+#else
+		msg = log_from_idx(idx);
 #endif
 		if(msg!=NULL)
 		{
-            len += msg_print_text(msg, true, time, NULL, 0);
+            		len += msg_print_text(msg, true, time, NULL, 0);
 		}
 		idx = log_next(idx);
 		seq++;
@@ -1642,6 +1648,8 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 			/* 不是vkernel进程，原始读取 */
 			msg = log_from_idx(idx);
 		}
+#else
+		msg = log_from_idx(idx);
 #endif
 		/* 修改 */
 		if(msg!=NULL)
@@ -1666,6 +1674,8 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 			/* 不是vkernel进程，原始读取 */
 			msg = log_from_idx(idx);
 		}
+#else
+		msg = log_from_idx(idx);
 #endif
 		/* 修改 */
 		int textlen = 0;
@@ -1816,6 +1826,8 @@ int do_syslog(int type, char __user *buf, int len, int source)
 					/* 不是vkernel进程，原始读取 */
 					msg = log_from_idx(idx);
 				}
+#else
+				msg = log_from_idx(idx);
 #endif
 				if(msg!=NULL)
 				{
@@ -2660,6 +2672,8 @@ skip:
 			/* 不是vkernel进程，原始读取 */
 			msg = log_from_idx(console_idx);
 		}
+#else
+		msg = log_from_idx(console_idx);
 #endif
 		if (msg==NULL || suppress_message_printing(msg->level)) {
 			/* 没有权限，或者level不符合，跳过 */
@@ -3444,6 +3458,8 @@ bool kmsg_dump_get_line_nolock(struct kmsg_dumper *dumper, bool syslog,
 		/* 不是vkernel进程，原始读取 */
 		msg = log_from_idx(dumper->cur_idx);
 	}
+#else
+	msg = log_from_idx(dumper->cur_idx);
 #endif
 	if(msg!=NULL)
 	{
@@ -3549,6 +3565,8 @@ bool kmsg_dump_get_buffer(struct kmsg_dumper *dumper, bool syslog,
 			/* 不是vkernel进程，原始读取 */
 			msg = log_from_idx(idx);
 		}
+#else
+		msg = log_from_idx(idx);
 #endif
 		if(msg!=NULL)
 		{
@@ -3572,6 +3590,8 @@ bool kmsg_dump_get_buffer(struct kmsg_dumper *dumper, bool syslog,
 			/* 不是vkernel进程，原始读取 */
 			msg = log_from_idx(idx);
 		}
+#else
+		msg = log_from_idx(idx);
 #endif
 		if(msg!=NULL)
 		{
@@ -3597,6 +3617,8 @@ bool kmsg_dump_get_buffer(struct kmsg_dumper *dumper, bool syslog,
 			/* 不是vkernel进程，原始读取 */
 			msg = log_from_idx(idx);
 		}
+#else
+		msg = log_from_idx(idx);
 #endif
 		if(msg!=NULL)
 		{
