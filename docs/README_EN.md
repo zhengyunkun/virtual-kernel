@@ -12,24 +12,27 @@ A customizable, pluggable lightweight virtual kernel for containers on the Linux
 
 vkernel contains the following parts:
 
-- **module**: vkernel module (vkernel.ko,vkernel_hook.ko). They are the keys of VKernel, that realize the virtualization and security of kernel resources for the container.
+- **module**: vkernel module (vkernel.ko, vkernel_hook.ko). They are the keys of VKernel, that realize the virtualization and security of kernel resources for the container.
 - **builder**: A tool for building vkernel module. It analyzes container images' system call and automatically build vkernel module based on seccomp, apparmor rules.
 - **runtime**: A container runtime that calls the vkernel module. The runtime is [OCI](https://github.com/opencontainers/runtime-spec)-compatible and based on [runc 1.0.0-rc92](https://github.com/opencontainers/runc/tree/v1.0.0-rc92).
 - **kernel**: The Linux kernel running the vkernel module, based on [Linux 5.7](https://github.com/torvalds/linux/tree/v5.7)。
 
 ## Features
 
-vkernel implements the following features:
+Currently, after iterative development of the preliminary round and the finals, vkernel launched two versions, implements the following features:
 
 - **virtual kernel security isolation**
-  - **system call isolation**: Creating a separate system call table for each container,and take the futex subsystem as
-an example to implement the isolated *futex()* system call for containers.
-  - **file access control**: Implementing custom access rules for files and directories based on inode virtualization.
-  - **process permission control**: Container-oriented dual Capabilities protection.
-  - **syslog isolation**: Implementing isolated log file access for containers.
+  - **system call isolation( `Ongoing development` )**:
+    - Creating a separate system call table for each container( `v0.1` )
+    - Taking the futex subsystem as an example to implement the isolated *futex()* system call for containers( `v0.2` )
+  - **file access control( `v0.1` )**: Implementing custom access rules for files and directories based on inode virtualization.
+  - **process permission control( `v0.1` )**: Container-oriented dual Capabilities protection.
+  - **syslog isolation( `v0.2` )**: Implementing isolated log file access for containers.
   
 - **virtual kernel build process**
-  - **automatic build tools**: Automatically build vkernel modules based on apparmor and seccomp profiles.
+  - **automatic build tools( `v0.1` )**: Automatically build vkernel modules based on apparmor and seccomp profiles.
+
+We will implement `sched subsystem` and `mm subsystem` isolation for Linux in next version
 
 ## Prerequisites
 
@@ -43,7 +46,7 @@ You need to install the following tools in advance:
 - Python3
 - Make、Gcc and other libraries used to build linux kernel
 
-Or you can use the images we provide [rehgar/vkn_compiler](https://hub.docker.com/r/rehgar/vkn_compiler) to compile the kernel (vkernel_kernel) and runtime (vkernel_runc)
+Or you can use the Docker image we provide [rehgar/vkn_compiler](https://hub.docker.com/r/rehgar/vkn_compiler) to compile the kernel (vkernel_kernel) and runtime (vkernel_runc)
 ## Installation
 
 Clone the repository.
@@ -60,7 +63,7 @@ $ cd vkernel_kernel
 
 For details, refer to the Linux kernel compilation and installation method.
 
-Note: Option CONFIG_VKERNEL=y needs to be added into the configuration file to support Vkernel. We provide a [config-5.7.0]() file that fits Ubuntu 20.04.
+Note: Option `CONFIG_VKERNEL=y` needs to be added into the configuration file to support Vkernel. We provide a [config-5.7.0](../configs/config-5.7.0) file that fits Ubuntu 20.04.
 
 ### Install vkernel module
 
@@ -169,6 +172,11 @@ In order to facilitate the testing of Vkernel, we provide [test scripts](scripts
 
 You need to pull the following images in advance:
 
+- perf-futex
+```bash
+$ docker pull d202181178/futex-test:latest
+```
+
 - nginx
 ```bash
 $ docker pull nginx:latest
@@ -194,6 +202,15 @@ If you wish to compare different container runtimes, the following components ne
 For details, refer to gVisor and kata installation methods.
 
 3. Test with scripts
+
+- Futex subsystem
+```bash
+$ cd scripts/futex
+Run with default runtime:
+$ ./run.sh secure 10
+Run with other runtimes:
+$ ./run.sh vkernel(kata/gvisor-ptrace/...) 10
+```
 
 - Nginx
 
@@ -221,4 +238,4 @@ If you are interested in our project, welcome to submit PRs.
 
 ## License
 
-The code and docs are released under the [GNU GENERAL PUBLIC LICENSE v2](https://gitlab.eduxiji.net/hustcgcl/project788067-109547/-/blob/master/LICENSE).
+The code and docs are released under the [GNU GENERAL PUBLIC LICENSE v2](../LICENSE).
